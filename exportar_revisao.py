@@ -53,15 +53,17 @@ def gerar_pdf(df):
 
 
 FORMATOS = {
-    "CSV": {
-        "extensao": "csv",
-        "mime": "text/csv",
-        "gerador": gerar_csv,
-    },
+    # Excel primeiro (não mais CSV) — é o formato padrão pedido pelo Robert
+    # em 2026-09-10; a ordem aqui decide a opção padrão do selectbox na tela.
     "Excel (XLSX)": {
         "extensao": "xlsx",
         "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "gerador": gerar_xlsx,
+    },
+    "CSV": {
+        "extensao": "csv",
+        "mime": "text/csv",
+        "gerador": gerar_csv,
     },
     "PDF": {
         "extensao": "pdf",

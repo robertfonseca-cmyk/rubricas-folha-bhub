@@ -27,12 +27,19 @@ def _sem_indentacao(texto):
 
 
 def _logo_mark_html(tamanho=32):
-    lado = round(tamanho * 0.32)
+    """Símbolo BHub: quadrado arredondado de fundo CLARO (Sensei Glow) com 3
+    losangos ESCUROS (Bushido Night) formando um triângulo — conferido direto
+    no "Manual da Marca BHub - Outubro 2025.pdf" (capa, página 1). A versão
+    anterior tinha as cores trocadas (losangos claros soltos, sem o quadrado
+    de fundo) — bug real reportado pelo Robert em 2026-09-10. O quadrado tem
+    fundo próprio fixo, por isso funciona igual tanto em área clara quanto
+    escura da tela (é assim que a BHub usa o símbolo no próprio manual)."""
+    lado_diamante = round(tamanho * 0.32)
     return _sem_indentacao(f"""
-    <div style="display:flex; gap:2px; justify-content:center; align-items:center;">
-      <span style="width:{lado}px; height:{lado}px; background:{CORES['sensei_glow']}; transform:rotate(45deg); display:inline-block;"></span>
-      <span style="width:{lado}px; height:{lado}px; background:{CORES['sensei_glow']}; transform:rotate(45deg); display:inline-block;"></span>
-      <span style="width:{lado}px; height:{lado}px; background:{CORES['sensei_glow']}; transform:rotate(45deg); display:inline-block;"></span>
+    <div style="position:relative; width:{tamanho}px; height:{tamanho}px; background:{CORES['sensei_glow']}; border-radius:{round(tamanho * 0.22)}px; flex-shrink:0;">
+      <span style="position:absolute; left:50%; top:31%; width:{lado_diamante}px; height:{lado_diamante}px; background:{CORES['bushido_night']}; transform:translate(-50%,-50%) rotate(45deg);"></span>
+      <span style="position:absolute; left:33%; top:61%; width:{lado_diamante}px; height:{lado_diamante}px; background:{CORES['bushido_night']}; transform:translate(-50%,-50%) rotate(45deg);"></span>
+      <span style="position:absolute; left:67%; top:61%; width:{lado_diamante}px; height:{lado_diamante}px; background:{CORES['bushido_night']}; transform:translate(-50%,-50%) rotate(45deg);"></span>
     </div>
     """)
 
