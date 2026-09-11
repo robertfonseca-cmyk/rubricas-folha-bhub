@@ -15,7 +15,11 @@ SIGLAS_TRIBUTOS = {
 }
 
 CONFIANCA_MINIMA = 0.6
-CONFIANCA_MINIMA_NOME_APROXIMADO = 0.85
+# Abaixo deste valor, um match de rubrica por nome aproximado (não exato, não
+# por código eSocial) ainda é usado, mas cai em "revisar_match_rubrica" em vez
+# de aprovar sozinho. A pedido do Robert (2026-09-11): aprovação automática
+# pra tudo que bater 80% ou mais (era 85%).
+CONFIANCA_MINIMA_NOME_APROXIMADO = 0.80
 
 SITUACOES = (
     "ok",
