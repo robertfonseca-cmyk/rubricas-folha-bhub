@@ -27,6 +27,7 @@ import build_review
 import empresa_loader
 import exportar_revisao
 import historico_export
+import relatorio_341
 from branding import (
     aplicar_tema_bhub,
     cabecalho_bhub,
@@ -245,6 +246,37 @@ else:
 
     rubricas_todas = st.session_state.rubricas_todas
     st.caption(f"{len(st.session_state.rubricas_selecionadas)} de {len(rubricas_todas)} rubricas selecionadas.")
+
+    st.markdown("#### Selecionar automaticamente a partir de um relatório (opcional)")
+    st.caption(
+        'Envie o relatório do Domínio "Relação de Rubricas/Itens Não '
+        'Configurados" (PDF) pra já vir selecionado só com as rubricas que '
+        "aparecem nele, em vez de marcar uma por uma."
+    )
+    arquivo_relatorio_341 = st.file_uploader(
+        "Relatório de Rubricas/Itens Não Configurados (PDF, opcional)",
+        type=["pdf"], key="upload_relatorio_341",
+    )
+    if arquivo_relatorio_341 is not None and st.button("Aplicar seleção do relatório"):
+        codigos_relatorio = relatorio_341.extrair_codigos(arquivo_relatorio_341)
+        codigos_disponiveis = {r.codigo for r in rubricas_todas}
+        codigos_validos = codigos_relatorio & codigos_disponiveis
+        codigos_nao_encontrados = codigos_relatorio - codigos_disponiveis
+
+        st.session_state.rubricas_selecionadas = codigos_validos
+        st.success(
+            f"{len(codigos_validos)} de {len(codigos_relatorio)} código(s) do "
+            "relatório encontrados na relação de rubricas e selecionados."
+        )
+        if codigos_nao_encontrados:
+            amostra = ", ".join(sorted(codigos_nao_encontrados, key=lambda c: (len(c), c))[:20])
+            st.warning(
+                f"{len(codigos_nao_encontrados)} código(s) do relatório não bateram "
+                f"com nenhuma rubrica da relação enviada (conferir se é o arquivo "
+                f"certo da mesma empresa): {amostra}"
+                + ("..." if len(codigos_nao_encontrados) > 20 else "")
+            )
+        st.rerun()
 
     col_busca, col_sel_todas, col_sel_nenhuma = st.columns([3, 1, 1])
     busca_rubrica = col_busca.text_input(

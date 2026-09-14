@@ -3,3 +3,4 @@ openpyxl
 xlrd
 streamlit
 reportlab
+pymupdf
