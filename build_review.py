@@ -113,6 +113,13 @@ def montar_tabela_revisao_multi(modelo, contas_empresa, rubricas_empresa, tratat
     único DataFrame combinado, com colunas extras `tratativa_id`, `departamento`
     e `tipo_integracao` pra saber de qual tratativa cada linha veio.
 
+    `rubricas_empresa` pode ser uma lista única (mesmas rubricas pra todos os
+    departamentos) ou um dict `{tratativa.id: lista de RubricaEmpresa}`, pra
+    usar um conjunto diferente por departamento — usado quando a seleção vem
+    por Tipo da Integração via relatorio_341 (2026-09-14: cada departamento só
+    processa as rubricas do SEU tipo, ex. um departamento de Provisão só
+    processa rubricas marcadas como Provisão no relatório).
+
     progress_callback(indice_tratativa, total_tratativas, i, total), se
     informado, é chamado periodicamente durante o processamento de cada
     tratativa."""
@@ -125,13 +132,17 @@ def montar_tabela_revisao_multi(modelo, contas_empresa, rubricas_empresa, tratat
             rubricas_bhub = bhub_model.substituir_provisao_por_rescisao(rubricas_bhub)
         modelo_ajustado = bhub_model.ModeloBhub(plano_contas=modelo.plano_contas, rubricas=rubricas_bhub)
 
+        rubricas_desta_tratativa = (
+            rubricas_empresa.get(tratativa.id, []) if isinstance(rubricas_empresa, dict) else rubricas_empresa
+        )
+
         callback_parcial = None
         if progress_callback:
             def callback_parcial(i, total, _indice=indice, _total_tratativas=total_tratativas):
                 progress_callback(_indice, _total_tratativas, i, total)
 
         df_tratativa = montar_tabela_revisao(
-            modelo_ajustado, contas_empresa, rubricas_empresa,
+            modelo_ajustado, contas_empresa, rubricas_desta_tratativa,
             tratativa.natureza_empresa, tratativa.tipo_integracao,
             progress_callback=callback_parcial,
         )

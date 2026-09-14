@@ -243,6 +243,7 @@ else:
         st.session_state.rubricas_todas = empresa_loader.carregar_rubricas_empresa(arquivo_rubricas)
         st.session_state.rubricas_selecionadas = {r.codigo for r in st.session_state.rubricas_todas}
         st.session_state.rubricas_arquivo_identidade = identidade_arquivo_rubricas
+        st.session_state.rubricas_por_tipo_relatorio = None
 
     rubricas_todas = st.session_state.rubricas_todas
     st.caption(f"{len(st.session_state.rubricas_selecionadas)} de {len(rubricas_todas)} rubricas selecionadas.")
@@ -250,23 +251,37 @@ else:
     st.markdown("#### Selecionar automaticamente a partir de um relatório (opcional)")
     st.caption(
         'Envie o relatório do Domínio "Relação de Rubricas/Itens Não '
-        'Configurados" (PDF) pra já vir selecionado só com as rubricas que '
-        "aparecem nele, em vez de marcar uma por uma."
+        'Configurados" (PDF) pra já vir selecionado, separado por Tipo da '
+        "Integração — cada departamento (seção 1) vai processar só as "
+        "rubricas do SEU tipo (ex.: um departamento de Provisão só processa "
+        "as rubricas que o relatório marcou como Provisão)."
     )
     arquivo_relatorio_341 = st.file_uploader(
         "Relatório de Rubricas/Itens Não Configurados (PDF, opcional)",
         type=["pdf"], key="upload_relatorio_341",
     )
     if arquivo_relatorio_341 is not None and st.button("Aplicar seleção do relatório"):
-        codigos_relatorio = relatorio_341.extrair_codigos(arquivo_relatorio_341)
+        codigos_por_tipo = relatorio_341.extrair_codigos_por_tipo_integracao(arquivo_relatorio_341)
         codigos_disponiveis = {r.codigo for r in rubricas_todas}
-        codigos_validos = codigos_relatorio & codigos_disponiveis
-        codigos_nao_encontrados = codigos_relatorio - codigos_disponiveis
 
-        st.session_state.rubricas_selecionadas = codigos_validos
+        codigos_por_tipo_validos = {
+            tipo: codigos & codigos_disponiveis for tipo, codigos in codigos_por_tipo.items()
+        }
+        todos_codigos_relatorio = set().union(*codigos_por_tipo.values()) if codigos_por_tipo else set()
+        codigos_nao_encontrados = todos_codigos_relatorio - codigos_disponiveis
+
+        st.session_state.rubricas_por_tipo_relatorio = codigos_por_tipo_validos
+        st.session_state.rubricas_selecionadas = (
+            set().union(*codigos_por_tipo_validos.values()) if codigos_por_tipo_validos else set()
+        )
+
+        resumo_por_tipo = ", ".join(
+            f"{bhub_model.TIPO_INTEGRACAO_LABELS.get(tipo, tipo)}: {len(codigos)}"
+            for tipo, codigos in sorted(codigos_por_tipo_validos.items())
+        )
         st.success(
-            f"{len(codigos_validos)} de {len(codigos_relatorio)} código(s) do "
-            "relatório encontrados na relação de rubricas e selecionados."
+            f"{len(st.session_state.rubricas_selecionadas)} rubrica(s) selecionadas a partir "
+            f"do relatório, por Tipo da Integração — {resumo_por_tipo}."
         )
         if codigos_nao_encontrados:
             amostra = ", ".join(sorted(codigos_nao_encontrados, key=lambda c: (len(c), c))[:20])
@@ -278,6 +293,14 @@ else:
             )
         st.rerun()
 
+    if st.session_state.get("rubricas_por_tipo_relatorio"):
+        st.caption(
+            "⚠️ Seleção por relatório ativa: cada departamento vai usar só as "
+            "rubricas do seu próprio Tipo da Integração ao processar. "
+            '"Selecionar todas"/"Desmarcar todas" abaixo desativa esse '
+            "modo e volta a aplicar a mesma seleção pra todos os departamentos."
+        )
+
     col_busca, col_sel_todas, col_sel_nenhuma = st.columns([3, 1, 1])
     busca_rubrica = col_busca.text_input(
         "Buscar por código ou nome (só filtra a lista abaixo, não muda o que já está selecionado)",
@@ -285,9 +308,11 @@ else:
     )
     if col_sel_todas.button("Selecionar todas"):
         st.session_state.rubricas_selecionadas = {r.codigo for r in rubricas_todas}
+        st.session_state.rubricas_por_tipo_relatorio = None
         st.rerun()
     if col_sel_nenhuma.button("Desmarcar todas"):
         st.session_state.rubricas_selecionadas = set()
+        st.session_state.rubricas_por_tipo_relatorio = None
         st.rerun()
 
     rubricas_exibidas = rubricas_todas
@@ -356,10 +381,26 @@ if not pode_processar:
 
 if st.button("Processar rubricas da empresa", disabled=not pode_processar):
     contas_empresa = empresa_loader.carregar_plano_contas_empresa(arquivo_plano_contas)
-    rubricas_empresa = [
-        r for r in st.session_state.rubricas_todas
-        if r.codigo in st.session_state.rubricas_selecionadas
-    ]
+
+    rubricas_por_tipo_relatorio = st.session_state.get("rubricas_por_tipo_relatorio")
+    if rubricas_por_tipo_relatorio:
+        # Seleção por relatório 341 ativa: cada departamento só recebe as
+        # rubricas do SEU Tipo da Integração — cruzadas com o que ainda está
+        # marcado na tabela (desmarcar uma rubrica manualmente continua
+        # valendo mesmo dentro do modo por tipo).
+        rubricas_empresa = {
+            tratativa.id: [
+                r for r in st.session_state.rubricas_todas
+                if r.codigo in (rubricas_por_tipo_relatorio.get(tratativa.tipo_integracao, set())
+                                & st.session_state.rubricas_selecionadas)
+            ]
+            for tratativa in st.session_state.departamentos
+        }
+    else:
+        rubricas_empresa = [
+            r for r in st.session_state.rubricas_todas
+            if r.codigo in st.session_state.rubricas_selecionadas
+        ]
 
     total_departamentos = len(st.session_state.departamentos)
     barra = st.progress(0.0)
