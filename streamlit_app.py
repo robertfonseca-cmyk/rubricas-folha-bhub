@@ -225,19 +225,109 @@ if st.session_state.departamentos:
 else:
     st.info("Nenhum departamento adicionado ainda.")
 
-# --- 2. Gerar tabela de revisão ----------------------------------------------
-st.markdown("### 2. Gerar tabela de revisão")
+# --- 2. Rubricas a processar --------------------------------------------------
+st.markdown("### 2. Rubricas a processar")
+st.caption(
+    "Todas as rubricas do arquivo vêm marcadas por padrão — desmarque as que "
+    "você não quer contabilizar neste processo, ou baixe um PDF de registro "
+    "com a seleção atual."
+)
+
+if arquivo_rubricas is None:
+    st.info("Envie a relação de rubricas da empresa (barra lateral) para escolher quais processar.")
+else:
+    identidade_arquivo_rubricas = (arquivo_rubricas.file_id, arquivo_rubricas.name)
+    if st.session_state.get("rubricas_arquivo_identidade") != identidade_arquivo_rubricas:
+        # Arquivo novo ou trocado: carrega de novo e seleciona tudo por padrão.
+        st.session_state.rubricas_todas = empresa_loader.carregar_rubricas_empresa(arquivo_rubricas)
+        st.session_state.rubricas_selecionadas = {r.codigo for r in st.session_state.rubricas_todas}
+        st.session_state.rubricas_arquivo_identidade = identidade_arquivo_rubricas
+
+    rubricas_todas = st.session_state.rubricas_todas
+    st.caption(f"{len(st.session_state.rubricas_selecionadas)} de {len(rubricas_todas)} rubricas selecionadas.")
+
+    col_busca, col_sel_todas, col_sel_nenhuma = st.columns([3, 1, 1])
+    busca_rubrica = col_busca.text_input(
+        "Buscar por código ou nome (só filtra a lista abaixo, não muda o que já está selecionado)",
+        key="busca_rubricas",
+    )
+    if col_sel_todas.button("Selecionar todas"):
+        st.session_state.rubricas_selecionadas = {r.codigo for r in rubricas_todas}
+        st.rerun()
+    if col_sel_nenhuma.button("Desmarcar todas"):
+        st.session_state.rubricas_selecionadas = set()
+        st.rerun()
+
+    rubricas_exibidas = rubricas_todas
+    if busca_rubrica:
+        termo = busca_rubrica.strip().lower()
+        rubricas_exibidas = [
+            r for r in rubricas_exibidas
+            if termo in r.codigo.lower() or termo in r.nome.lower()
+        ]
+
+    df_selecao_rubricas = pd.DataFrame([
+        {
+            "incluir": r.codigo in st.session_state.rubricas_selecionadas,
+            "codigo": r.codigo,
+            "nome": r.nome,
+        }
+        for r in rubricas_exibidas
+    ])
+    df_selecao_editada = st.data_editor(
+        df_selecao_rubricas,
+        width="stretch",
+        hide_index=True,
+        disabled=["codigo", "nome"],
+        column_config={
+            "incluir": st.column_config.CheckboxColumn("Incluir"),
+            "codigo": st.column_config.TextColumn("Código"),
+            "nome": st.column_config.TextColumn("Nome da rubrica"),
+        },
+        key="editor_selecao_rubricas",
+    )
+    for _, linha in df_selecao_editada.iterrows():
+        if linha["incluir"]:
+            st.session_state.rubricas_selecionadas.add(linha["codigo"])
+        else:
+            st.session_state.rubricas_selecionadas.discard(linha["codigo"])
+
+    st.markdown("#### Relatório opcional da seleção (PDF)")
+    st.caption(
+        "Documento auxiliar só pra registro/conferência de quais rubricas foram "
+        "escolhidas — não é o arquivo que vai pro Domínio."
+    )
+    if st.button("Gerar PDF com as rubricas selecionadas"):
+        pdf_selecao = exportar_revisao.gerar_pdf_selecao_rubricas(
+            rubricas_todas, st.session_state.rubricas_selecionadas
+        )
+        st.download_button(
+            "Baixar PDF da seleção",
+            data=pdf_selecao,
+            file_name="rubricas_selecionadas.pdf",
+            mime="application/pdf",
+        )
+
+# --- 3. Gerar tabela de revisão ----------------------------------------------
+st.markdown("### 3. Gerar tabela de revisão")
 pode_processar = (
     arquivo_plano_contas is not None
     and arquivo_rubricas is not None
+    and bool(st.session_state.get("rubricas_selecionadas"))
     and len(st.session_state.departamentos) > 0
 )
 if not pode_processar:
-    st.info("Envie os dois arquivos da empresa e adicione ao menos um departamento para liberar o processamento.")
+    st.info(
+        "Envie os dois arquivos da empresa, selecione ao menos uma rubrica e "
+        "adicione ao menos um departamento para liberar o processamento."
+    )
 
 if st.button("Processar rubricas da empresa", disabled=not pode_processar):
     contas_empresa = empresa_loader.carregar_plano_contas_empresa(arquivo_plano_contas)
-    rubricas_empresa = empresa_loader.carregar_rubricas_empresa(arquivo_rubricas)
+    rubricas_empresa = [
+        r for r in st.session_state.rubricas_todas
+        if r.codigo in st.session_state.rubricas_selecionadas
+    ]
 
     total_departamentos = len(st.session_state.departamentos)
     barra = st.progress(0.0)
@@ -264,7 +354,7 @@ if st.button("Processar rubricas da empresa", disabled=not pode_processar):
 df = st.session_state.tabela_revisao
 
 if df is not None and not df.empty:
-    st.markdown("### 3. Revisão")
+    st.markdown("### 4. Revisão")
 
     st.markdown("#### Por departamento")
     resumo = (
@@ -386,7 +476,7 @@ if df is not None and not df.empty:
                     )
                 st.rerun()
 
-    st.markdown("### 4. Gerar arquivos para o Domínio")
+    st.markdown("### 5. Gerar arquivos para o Domínio")
     campos_obrigatorios_ok = bool(codigo_empresa) and bool(cnpj_empresa)
     if not campos_obrigatorios_ok:
         st.info("Preencha código da empresa e CNPJ na barra lateral para liberar a geração dos arquivos.")

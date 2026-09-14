@@ -52,6 +52,36 @@ def gerar_pdf(df):
     return buffer.getvalue()
 
 
+def gerar_pdf_selecao_rubricas(rubricas, codigos_selecionados):
+    """PDF auxiliar e opcional (2026-09-14, a pedido do Robert) listando quais
+    rubricas da empresa foram escolhidas pra contabilizar num processamento —
+    só um registro/conferência, não é o arquivo que vai pro Domínio."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    selecionadas = [r for r in rubricas if r.codigo in codigos_selecionados]
+    dados = [["Código", "Nome da rubrica"]] + [[r.codigo, r.nome] for r in selecionadas]
+
+    buffer = io.BytesIO()
+    estilos = getSampleStyleSheet()
+    titulo = Paragraph(
+        f"Rubricas selecionadas para contabilizar — {len(selecionadas)} de {len(rubricas)}",
+        estilos["Heading2"],
+    )
+    tabela = Table(dados, repeatRows=1)
+    tabela.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F1727")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTSIZE", (0, 0), (-1, -1), 7),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+    ]))
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(A4))
+    doc.build([titulo, Spacer(1, 12), tabela])
+    return buffer.getvalue()
+
+
 FORMATOS = {
     # Excel primeiro (não mais CSV) — é o formato padrão pedido pelo Robert
     # em 2026-09-10; a ordem aqui decide a opção padrão do selectbox na tela.
