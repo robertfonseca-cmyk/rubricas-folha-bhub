@@ -64,13 +64,15 @@ def _ler_linhas(arquivo_pdf):
     return linhas
 
 
-def extrair_codigos_por_secao(arquivo_pdf):
-    """Devolve um dict {texto_da_seção: set(códigos)} — o texto da seção é
+def extrair_itens_por_secao(arquivo_pdf):
+    """Devolve um dict {texto_da_seção: {código: nome}} — o texto da seção é
     exatamente como aparece no relatório (ex. "Folha Normal", "Rescisão"),
     sem tentar interpretar o que significa (isso é trabalho de
-    `_mapear_tipo_integracao`). Uma seção sem nome antes do primeiro
-    "Departamento:" (relatório começando direto, sem cabeçalho de tipo) usa a
-    chave `None`."""
+    `_mapear_tipo_integracao`). Preserva o NOME de cada rubrica (não só o
+    código) — necessário quando o relatório é usado como a própria lista de
+    rubricas a processar, sem a relação de rubricas completa da empresa
+    (2026-09-14: "em alguns casos eu não vou ter a relação de rubricas da
+    empresa, somente a relação de rubricas não cadastradas")."""
     linhas = _ler_linhas(arquivo_pdf)
 
     resultado = {}
@@ -99,7 +101,8 @@ def extrair_codigos_por_secao(arquivo_pdf):
 
         if dentro_bloco:
             if linha.isdigit():
-                resultado.setdefault(secao_atual, set()).add(linha)
+                nome = linhas[i + 1] if i + 1 < len(linhas) else ""
+                resultado.setdefault(secao_atual, {})[linha] = nome
                 i += 2  # pula a descrição junto com o código
                 continue
             dentro_bloco = False
@@ -117,15 +120,26 @@ def extrair_codigos_por_secao(arquivo_pdf):
     return resultado
 
 
-def extrair_codigos_por_tipo_integracao(arquivo_pdf):
-    """Devolve {tipo_integracao (1-6): set(códigos)}, juntando todas as seções
-    do relatório que mapeiam pro mesmo Tipo da Integração."""
-    por_secao = extrair_codigos_por_secao(arquivo_pdf)
+def extrair_itens_por_tipo_integracao(arquivo_pdf):
+    """Devolve {tipo_integracao (1-6): {código: nome}}, juntando todas as
+    seções do relatório que mapeiam pro mesmo Tipo da Integração."""
+    por_secao = extrair_itens_por_secao(arquivo_pdf)
     por_tipo = {}
-    for secao, codigos in por_secao.items():
+    for secao, itens in por_secao.items():
         tipo_integracao = _mapear_tipo_integracao(secao)
-        por_tipo.setdefault(tipo_integracao, set()).update(codigos)
+        por_tipo.setdefault(tipo_integracao, {}).update(itens)
     return por_tipo
+
+
+def extrair_codigos_por_secao(arquivo_pdf):
+    """Como `extrair_itens_por_secao`, mas só os códigos (sem nome) — pra
+    quem só precisa cruzar com uma relação de rubricas já carregada."""
+    return {secao: set(itens) for secao, itens in extrair_itens_por_secao(arquivo_pdf).items()}
+
+
+def extrair_codigos_por_tipo_integracao(arquivo_pdf):
+    """Como `extrair_itens_por_tipo_integracao`, mas só os códigos."""
+    return {tipo: set(itens) for tipo, itens in extrair_itens_por_tipo_integracao(arquivo_pdf).items()}
 
 
 def extrair_codigos(arquivo_pdf):

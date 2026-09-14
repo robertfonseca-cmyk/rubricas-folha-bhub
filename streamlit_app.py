@@ -105,7 +105,11 @@ if modelo_ok:
         "Envie abaixo os dois arquivos da empresa exportados do Domínio."
     )
 arquivo_plano_contas = st.sidebar.file_uploader("Plano de contas da empresa (.xls/.xlsx)", type=["xls", "xlsx"])
-arquivo_rubricas = st.sidebar.file_uploader("Relação de rubricas da empresa (.xls/.xlsx)", type=["xls", "xlsx"])
+arquivo_rubricas = st.sidebar.file_uploader(
+    "Relação de rubricas da empresa (.xls/.xlsx) — opcional se você for usar "
+    "só o relatório de rubricas não configuradas (seção 2)",
+    type=["xls", "xlsx"],
+)
 
 cabecalho_bhub("Contabilização de Rubricas de Folha")
 
@@ -229,69 +233,111 @@ else:
 # --- 2. Rubricas a processar --------------------------------------------------
 st.markdown("### 2. Rubricas a processar")
 st.caption(
-    "Todas as rubricas do arquivo vêm marcadas por padrão — desmarque as que "
-    "você não quer contabilizar neste processo, ou baixe um PDF de registro "
-    "com a seleção atual."
+    "Todas as rubricas vêm marcadas por padrão — desmarque as que você não "
+    "quer contabilizar neste processo, ou baixe um PDF de registro com a "
+    "seleção atual."
 )
 
-if arquivo_rubricas is None:
-    st.info("Envie a relação de rubricas da empresa (barra lateral) para escolher quais processar.")
+arquivo_relatorio_341 = st.file_uploader(
+    'Relatório "Relação de Rubricas/Itens Não Configurados" do Domínio (PDF) — '
+    "opcional se você já enviou a relação de rubricas da empresa na barra "
+    "lateral (usa pra pré-selecionar por Tipo da Integração); ou envie só "
+    "este relatório, sem a relação completa, se for tudo que você tiver",
+    type=["pdf"], key="upload_relatorio_341",
+)
+
+if arquivo_rubricas is None and arquivo_relatorio_341 is None:
+    st.info(
+        "Envie a relação de rubricas da empresa (barra lateral) ou o "
+        "relatório acima para escolher quais rubricas processar."
+    )
 else:
-    identidade_arquivo_rubricas = (arquivo_rubricas.file_id, arquivo_rubricas.name)
-    if st.session_state.get("rubricas_arquivo_identidade") != identidade_arquivo_rubricas:
-        # Arquivo novo ou trocado: carrega de novo e seleciona tudo por padrão.
-        st.session_state.rubricas_todas = empresa_loader.carregar_rubricas_empresa(arquivo_rubricas)
+    usando_so_relatorio = arquivo_rubricas is None
+    if usando_so_relatorio:
+        identidade_fonte = ("relatorio_341", arquivo_relatorio_341.file_id, arquivo_relatorio_341.name)
+    else:
+        identidade_fonte = ("relacao", arquivo_rubricas.file_id, arquivo_rubricas.name)
+
+    if st.session_state.get("rubricas_arquivo_identidade") != identidade_fonte:
+        if usando_so_relatorio:
+            # Sem a relação de rubricas completa: usa o próprio relatório
+            # como lista de rubricas (só código + nome — sem codi_emp/código
+            # eSocial, que o relatório não traz; o matching cai pra
+            # nome_exato/nome_aproximado nesse caso, que já é suportado).
+            itens_por_tipo = relatorio_341.extrair_itens_por_tipo_integracao(arquivo_relatorio_341)
+            itens_unicos = {}
+            for itens in itens_por_tipo.values():
+                itens_unicos.update(itens)
+            st.session_state.rubricas_todas = [
+                empresa_loader.RubricaEmpresa(codigo=codigo, nome=nome, codigo_esocial="", codi_emp="")
+                for codigo, nome in itens_unicos.items()
+            ]
+            st.session_state.rubricas_por_tipo_relatorio = {
+                tipo: set(itens) for tipo, itens in itens_por_tipo.items()
+            }
+        else:
+            st.session_state.rubricas_todas = empresa_loader.carregar_rubricas_empresa(arquivo_rubricas)
+            st.session_state.rubricas_por_tipo_relatorio = None
         st.session_state.rubricas_selecionadas = {r.codigo for r in st.session_state.rubricas_todas}
-        st.session_state.rubricas_arquivo_identidade = identidade_arquivo_rubricas
-        st.session_state.rubricas_por_tipo_relatorio = None
+        st.session_state.rubricas_arquivo_identidade = identidade_fonte
 
     rubricas_todas = st.session_state.rubricas_todas
-    st.caption(f"{len(st.session_state.rubricas_selecionadas)} de {len(rubricas_todas)} rubricas selecionadas.")
 
-    st.markdown("#### Selecionar automaticamente a partir de um relatório (opcional)")
-    st.caption(
-        'Envie o relatório do Domínio "Relação de Rubricas/Itens Não '
-        'Configurados" (PDF) pra já vir selecionado, separado por Tipo da '
-        "Integração — cada departamento (seção 1) vai processar só as "
-        "rubricas do SEU tipo (ex.: um departamento de Provisão só processa "
-        "as rubricas que o relatório marcou como Provisão)."
-    )
-    arquivo_relatorio_341 = st.file_uploader(
-        "Relatório de Rubricas/Itens Não Configurados (PDF, opcional)",
-        type=["pdf"], key="upload_relatorio_341",
-    )
-    if arquivo_relatorio_341 is not None and st.button("Aplicar seleção do relatório"):
-        codigos_por_tipo = relatorio_341.extrair_codigos_por_tipo_integracao(arquivo_relatorio_341)
-        codigos_disponiveis = {r.codigo for r in rubricas_todas}
-
-        codigos_por_tipo_validos = {
-            tipo: codigos & codigos_disponiveis for tipo, codigos in codigos_por_tipo.items()
-        }
-        todos_codigos_relatorio = set().union(*codigos_por_tipo.values()) if codigos_por_tipo else set()
-        codigos_nao_encontrados = todos_codigos_relatorio - codigos_disponiveis
-
-        st.session_state.rubricas_por_tipo_relatorio = codigos_por_tipo_validos
-        st.session_state.rubricas_selecionadas = (
-            set().union(*codigos_por_tipo_validos.values()) if codigos_por_tipo_validos else set()
-        )
-
+    if usando_so_relatorio:
         resumo_por_tipo = ", ".join(
             f"{bhub_model.TIPO_INTEGRACAO_LABELS.get(tipo, tipo)}: {len(codigos)}"
-            for tipo, codigos in sorted(codigos_por_tipo_validos.items())
+            for tipo, codigos in sorted(st.session_state.rubricas_por_tipo_relatorio.items())
         )
-        st.success(
-            f"{len(st.session_state.rubricas_selecionadas)} rubrica(s) selecionadas a partir "
-            f"do relatório, por Tipo da Integração — {resumo_por_tipo}."
+        st.info(
+            f"Sem a relação de rubricas completa da empresa — usando o "
+            f"relatório como lista: {len(rubricas_todas)} rubrica(s), já "
+            f"separadas por Tipo da Integração ({resumo_por_tipo}). Cada "
+            "departamento (seção 1) vai processar só as rubricas do seu "
+            "próprio tipo."
         )
-        if codigos_nao_encontrados:
-            amostra = ", ".join(sorted(codigos_nao_encontrados, key=lambda c: (len(c), c))[:20])
-            st.warning(
-                f"{len(codigos_nao_encontrados)} código(s) do relatório não bateram "
-                f"com nenhuma rubrica da relação enviada (conferir se é o arquivo "
-                f"certo da mesma empresa): {amostra}"
-                + ("..." if len(codigos_nao_encontrados) > 20 else "")
+    else:
+        st.caption(f"{len(st.session_state.rubricas_selecionadas)} de {len(rubricas_todas)} rubricas selecionadas.")
+
+        st.markdown("#### Selecionar automaticamente a partir do relatório (opcional)")
+        st.caption(
+            "Use o relatório enviado acima pra já vir selecionado, separado "
+            "por Tipo da Integração — cada departamento (seção 1) vai "
+            "processar só as rubricas do SEU tipo (ex.: um departamento de "
+            "Provisão só processa as rubricas que o relatório marcou como "
+            "Provisão)."
+        )
+        if arquivo_relatorio_341 is not None and st.button("Aplicar seleção do relatório"):
+            codigos_por_tipo = relatorio_341.extrair_codigos_por_tipo_integracao(arquivo_relatorio_341)
+            codigos_disponiveis = {r.codigo for r in rubricas_todas}
+
+            codigos_por_tipo_validos = {
+                tipo: codigos & codigos_disponiveis for tipo, codigos in codigos_por_tipo.items()
+            }
+            todos_codigos_relatorio = set().union(*codigos_por_tipo.values()) if codigos_por_tipo else set()
+            codigos_nao_encontrados = todos_codigos_relatorio - codigos_disponiveis
+
+            st.session_state.rubricas_por_tipo_relatorio = codigos_por_tipo_validos
+            st.session_state.rubricas_selecionadas = (
+                set().union(*codigos_por_tipo_validos.values()) if codigos_por_tipo_validos else set()
             )
-        st.rerun()
+
+            resumo_por_tipo = ", ".join(
+                f"{bhub_model.TIPO_INTEGRACAO_LABELS.get(tipo, tipo)}: {len(codigos)}"
+                for tipo, codigos in sorted(codigos_por_tipo_validos.items())
+            )
+            st.success(
+                f"{len(st.session_state.rubricas_selecionadas)} rubrica(s) selecionadas a partir "
+                f"do relatório, por Tipo da Integração — {resumo_por_tipo}."
+            )
+            if codigos_nao_encontrados:
+                amostra = ", ".join(sorted(codigos_nao_encontrados, key=lambda c: (len(c), c))[:20])
+                st.warning(
+                    f"{len(codigos_nao_encontrados)} código(s) do relatório não bateram "
+                    f"com nenhuma rubrica da relação enviada (conferir se é o arquivo "
+                    f"certo da mesma empresa): {amostra}"
+                    + ("..." if len(codigos_nao_encontrados) > 20 else "")
+                )
+            st.rerun()
 
     if st.session_state.get("rubricas_por_tipo_relatorio"):
         st.caption(
@@ -369,13 +415,14 @@ else:
 st.markdown("### 3. Gerar tabela de revisão")
 pode_processar = (
     arquivo_plano_contas is not None
-    and arquivo_rubricas is not None
+    and (arquivo_rubricas is not None or arquivo_relatorio_341 is not None)
     and bool(st.session_state.get("rubricas_selecionadas"))
     and len(st.session_state.departamentos) > 0
 )
 if not pode_processar:
     st.info(
-        "Envie os dois arquivos da empresa, selecione ao menos uma rubrica e "
+        "Envie o plano de contas e a relação de rubricas (ou o relatório de "
+        "não configurados, seção 2), selecione ao menos uma rubrica e "
         "adicione ao menos um departamento para liberar o processamento."
     )
 
