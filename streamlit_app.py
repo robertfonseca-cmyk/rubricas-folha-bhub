@@ -640,6 +640,7 @@ if df is not None and not df.empty:
             and linha.tipo_integracao in tipos_selecionados_export
         ]
         if not linhas_filtradas:
+            st.session_state.arquivos_gerados = None
             st.warning("Nenhuma linha aprovada dentro do filtro escolhido — nada para gerar.")
         else:
             numeracao_por_tratativa = {
@@ -652,23 +653,16 @@ if df is not None and not df.empty:
                     linhas_filtradas, codigo_empresa, numeracao_por_tratativa,
                 )
                 historicos_txt, avisos = historico_export.gerar_arquivo_historicos(linhas_numeradas, cnpj_empresa)
-
-                if avisos:
-                    st.warning(
-                        f"{len(avisos)} histórico(s) usaram um template ainda não confirmado "
-                        "com o Robert para este tipo/natureza de rubrica — revise antes de "
-                        "importar no Domínio."
-                    )
-
                 departamentos_gerados = sorted({linha.departamento for linha in linhas_filtradas})
-                st.success(
-                    f"{len(linhas_filtradas)} rubricas geradas, cobrindo {len(departamentos_gerados)} "
-                    f"departamento(s): {', '.join(departamentos_gerados)}."
-                )
-                c1, c2, c3 = st.columns(3)
-                c1.download_button("Baixar EVENTO.txt", data=evento_txt, file_name="EVENTO.txt", mime="text/plain")
-                c2.download_button("Baixar INTEGRA.txt", data=integra_txt, file_name="INTEGRA.txt", mime="text/plain")
-                c3.download_button("Baixar Históricos.txt", data=historicos_txt, file_name="Historicos.txt", mime="text/plain")
+                st.session_state.arquivos_gerados = {
+                    "modo": "combinado",
+                    "evento_txt": evento_txt,
+                    "integra_txt": integra_txt,
+                    "historicos_txt": historicos_txt,
+                    "avisos": len(avisos),
+                    "total_linhas": len(linhas_filtradas),
+                    "departamentos": departamentos_gerados,
+                }
             else:
                 buffer_zip = io.BytesIO()
                 avisos_totais = 0
@@ -687,20 +681,62 @@ if df is not None and not df.empty:
                         arquivo_zip.writestr(f"INTEGRA_{sufixo}.txt", integra_txt)
                         arquivo_zip.writestr(f"Historicos_{sufixo}.txt", historicos_txt)
 
-                if avisos_totais:
-                    st.warning(
-                        f"{avisos_totais} histórico(s), no total, usaram um template ainda não "
-                        "confirmado com o Robert para aquele tipo/natureza de rubrica — revise "
-                        "antes de importar no Domínio."
-                    )
+                st.session_state.arquivos_gerados = {
+                    "modo": "separado",
+                    "zip_bytes": buffer_zip.getvalue(),
+                    "avisos": avisos_totais,
+                    "total_linhas": len(linhas_filtradas),
+                    "total_departamentos": len(departamentos_selecionados_export),
+                }
 
-                st.success(
-                    f"{len(linhas_filtradas)} rubricas geradas, em "
-                    f"{len(departamentos_selecionados_export)} arquivo(s) separado(s) por departamento."
+    # Guardado no session_state (em vez de baixo do `if st.button(...)` acima) —
+    # clicar em qualquer download_button dispara um rerun do Streamlit, e nesse
+    # rerun o st.button("Gerar...") volta a False, fazendo o bloco inteiro (e os
+    # OUTROS botões de download ainda não clicados) sumir da tela antes que dê
+    # tempo de baixar todos. Renderizando a partir do session_state aqui fora,
+    # os botões sobrevivem a qualquer rerun (2026-09-17).
+    arquivos_gerados = st.session_state.get("arquivos_gerados")
+    if arquivos_gerados:
+        if arquivos_gerados["modo"] == "combinado":
+            if arquivos_gerados["avisos"]:
+                st.warning(
+                    f"{arquivos_gerados['avisos']} histórico(s) usaram um template ainda não "
+                    "confirmado com o Robert para este tipo/natureza de rubrica — revise antes "
+                    "de importar no Domínio."
                 )
-                st.download_button(
-                    "Baixar arquivos separados por departamento (.zip)",
-                    data=buffer_zip.getvalue(),
-                    file_name="rubricas_por_departamento.zip",
-                    mime="application/zip",
+            st.success(
+                f"{arquivos_gerados['total_linhas']} rubricas geradas, cobrindo "
+                f"{len(arquivos_gerados['departamentos'])} departamento(s): "
+                f"{', '.join(arquivos_gerados['departamentos'])}."
+            )
+            c1, c2, c3 = st.columns(3)
+            c1.download_button(
+                "Baixar EVENTO.txt", data=arquivos_gerados["evento_txt"],
+                file_name="EVENTO.txt", mime="text/plain", key="download_evento",
+            )
+            c2.download_button(
+                "Baixar INTEGRA.txt", data=arquivos_gerados["integra_txt"],
+                file_name="INTEGRA.txt", mime="text/plain", key="download_integra",
+            )
+            c3.download_button(
+                "Baixar Históricos.txt", data=arquivos_gerados["historicos_txt"],
+                file_name="Historicos.txt", mime="text/plain", key="download_historicos",
+            )
+        else:
+            if arquivos_gerados["avisos"]:
+                st.warning(
+                    f"{arquivos_gerados['avisos']} histórico(s), no total, usaram um template "
+                    "ainda não confirmado com o Robert para aquele tipo/natureza de rubrica — "
+                    "revise antes de importar no Domínio."
                 )
+            st.success(
+                f"{arquivos_gerados['total_linhas']} rubricas geradas, em "
+                f"{arquivos_gerados['total_departamentos']} arquivo(s) separado(s) por departamento."
+            )
+            st.download_button(
+                "Baixar arquivos separados por departamento (.zip)",
+                data=arquivos_gerados["zip_bytes"],
+                file_name="rubricas_por_departamento.zip",
+                mime="application/zip",
+                key="download_zip_departamentos",
+            )
