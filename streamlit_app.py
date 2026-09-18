@@ -602,6 +602,28 @@ if df is not None and not df.empty:
     if not campos_obrigatorios_ok:
         st.info("Preencha código da empresa e CNPJ na barra lateral para liberar a geração dos arquivos.")
 
+    if len(st.session_state.departamentos) > 1:
+        st.caption(
+            "ℹ️ Número de lançamento: sequência própria por departamento. Número "
+            "de histórico: **compartilhado entre departamentos** — a mesma "
+            "rubrica usada em mais de um departamento reaproveita o mesmo número "
+            "de histórico; a sequência para números novos começa no \"último "
+            "histórico\" do **primeiro departamento cadastrado** "
+            f"(\"{st.session_state.departamentos[0].departamento}\") — o valor "
+            "configurado nos demais departamentos não é usado."
+        )
+        historicos_divergentes = {
+            t.ultimo_historico for t in st.session_state.departamentos
+        }
+        if len(historicos_divergentes) > 1:
+            st.warning(
+                "Os departamentos têm valores diferentes de \"último histórico\" "
+                "configurados — como a numeração agora é compartilhada, só o do "
+                f"primeiro departamento (\"{st.session_state.departamentos[0].departamento}\", "
+                f"{st.session_state.departamentos[0].ultimo_historico}) será usado; "
+                "confira se é esse mesmo o número certo antes de gerar."
+            )
+
     departamentos_para_exportar = sorted(df_completo["departamento"].unique())
     tipos_para_exportar = sorted(df_completo["tipo_integracao"].unique())
 
