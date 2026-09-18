@@ -24,6 +24,7 @@ import streamlit as st
 
 import bhub_model
 import build_review
+import dominio_export
 import empresa_loader
 import exportar_revisao
 import historico_export
@@ -647,10 +648,17 @@ if df is not None and not df.empty:
                 t.id: {"ultimo_historico": t.ultimo_historico, "ultimo_lancamento": t.ultimo_lancamento}
                 for t in st.session_state.departamentos
             }
+            # Contador de histórico GLOBAL (2026-09-18): criado uma vez só, fora
+            # do laço, e passado adiante em cada chamada de gerar_arquivos_dominio
+            # — mesma rubrica em departamentos diferentes reaproveita o mesmo
+            # número de histórico; se o texto for inédito, a sequência CONTINUA
+            # de onde o departamento anterior parou (não reinicia por
+            # departamento). Ver dominio_export.novo_estado_historico.
+            estado_historico = dominio_export.novo_estado_historico(numeracao_por_tratativa)
 
             if modo_exportacao == "combinado":
-                evento_txt, integra_txt, linhas_numeradas = gerar_arquivos_dominio(
-                    linhas_filtradas, codigo_empresa, numeracao_por_tratativa,
+                evento_txt, integra_txt, linhas_numeradas, estado_historico = gerar_arquivos_dominio(
+                    linhas_filtradas, codigo_empresa, numeracao_por_tratativa, estado_historico,
                 )
                 historicos_txt, avisos = historico_export.gerar_arquivo_historicos(linhas_numeradas, cnpj_empresa)
                 departamentos_gerados = sorted({linha.departamento for linha in linhas_filtradas})
@@ -671,8 +679,8 @@ if df is not None and not df.empty:
                         linhas_departamento = [l for l in linhas_filtradas if l.departamento == departamento]
                         if not linhas_departamento:
                             continue
-                        evento_txt, integra_txt, linhas_numeradas = gerar_arquivos_dominio(
-                            linhas_departamento, codigo_empresa, numeracao_por_tratativa,
+                        evento_txt, integra_txt, linhas_numeradas, estado_historico = gerar_arquivos_dominio(
+                            linhas_departamento, codigo_empresa, numeracao_por_tratativa, estado_historico,
                         )
                         historicos_txt, avisos = historico_export.gerar_arquivo_historicos(linhas_numeradas, cnpj_empresa)
                         avisos_totais += len(avisos)

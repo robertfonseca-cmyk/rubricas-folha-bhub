@@ -44,18 +44,37 @@ def _escolher_template(tipo_rubrica_bhub, natureza_rubrica):
     return "{numero} - {descricao} #N", False
 
 
+def montar_descricao_historico(linha):
+    """Devolve (descricao_formatada, confirmado) pro histórico de uma linha —
+    exposto à parte (não só usado internamente aqui) porque
+    dominio_export.gerar_arquivos_dominio() precisa do TEXTO do histórico pra
+    decidir se reaproveita um número já usado por outra linha (mesma rubrica
+    em departamento diferente) — ver notas.md 2026-09-18."""
+    template, confirmado = _escolher_template(linha.tipo_rubrica_bhub, linha.natureza_rubrica)
+    descricao = template.format(
+        numero=_fmt_numero(linha.numero_rubrica_bhub),
+        descricao=linha.descricao,
+    )
+    return descricao, confirmado
+
+
 def gerar_arquivo_historicos(linhas, cnpj_empresa):
-    """Devolve (texto_do_arquivo, numeros_com_template_nao_confirmado)."""
+    """Devolve (texto_do_arquivo, numeros_com_template_nao_confirmado).
+
+    Cada NÚMERO de histórico é cadastrado só uma vez no arquivo — quando
+    linhas de departamentos diferentes reaproveitam o mesmo número (mesma
+    rubrica, mesmo texto de histórico — ver
+    dominio_export.gerar_arquivos_dominio), o registro |0220| não duplica."""
     corpo = [f"|0000|{cnpj_empresa}|"]
     avisos = []
+    numeros_ja_registrados = set()
 
     for linha in linhas:
-        template, confirmado = _escolher_template(linha.tipo_rubrica_bhub, linha.natureza_rubrica)
-        descricao = template.format(
-            numero=_fmt_numero(linha.numero_rubrica_bhub),
-            descricao=linha.descricao,
-        )
+        if linha.numero_historico in numeros_ja_registrados:
+            continue
+        descricao, confirmado = montar_descricao_historico(linha)
         corpo.append(f"|0220|{linha.numero_historico}|{descricao}|")
+        numeros_ja_registrados.add(linha.numero_historico)
         if not confirmado:
             avisos.append(linha.numero_historico)
 
