@@ -285,6 +285,41 @@ def salvar_plano_contas(caminho_plano_contas, plano_contas_novo):
 
 
 # ---------------------------------------------------------------------------
+# Busca — filtra só o que é MOSTRADO na tela; salvar sempre mescla de volta
+# no conjunto completo (ver _mesclar_edicao_parcial), então buscar e editar só
+# a linha encontrada nunca apaga as que ficaram de fora do resultado.
+# ---------------------------------------------------------------------------
+
+def _filtrar_por_texto(df, busca, colunas):
+    if not busca:
+        return df
+    busca_norm = busca.strip().lower()
+    mascara = False
+    for coluna in colunas:
+        mascara = mascara | df[coluna].astype(str).str.lower().str.contains(busca_norm, regex=False)
+    return df[mascara]
+
+
+def _mesclar_edicao_parcial(itens_completos_por_chave, chaves_mostradas_antes_da_edicao, itens_editados):
+    """`itens_completos_por_chave`: TODOS os itens (dict chave -> objeto), do
+    jeito que estavam antes desta edição. `chaves_mostradas_antes_da_edicao`:
+    as chaves que estavam visíveis na tabela (com busca ativa, só as que
+    bateram no filtro) ANTES do usuário editar. `itens_editados`: o resultado
+    de converter de volta a tabela editada (só a parte que estava visível).
+
+    Devolve a lista completa resultante: item fora do filtro = preservado
+    como estava; item que estava visível e sumiu da edição = removido; item
+    editado/novo = entra com o valor novo. Isso é o que permite buscar,
+    editar só o que apareceu, e salvar sem arriscar apagar o resto."""
+    resultado = dict(itens_completos_por_chave)
+    for chave in chaves_mostradas_antes_da_edicao:
+        resultado.pop(chave, None)
+    for item in itens_editados:
+        resultado[item.numero if hasattr(item, "numero") else item.codigo] = item
+    return list(resultado.values())
+
+
+# ---------------------------------------------------------------------------
 # UI
 # ---------------------------------------------------------------------------
 
@@ -295,8 +330,8 @@ def pagina_padrao_bhub(modelo, modelo_ok, caminho_parametrizacao, caminho_plano_
         "padrão (débito/crédito por natureza da empresa) e o plano de contas padrão BHub. "
         "**Salvar aqui sobrescreve os arquivos usados por todo mundo que abrir o app** (sem "
         "backup automático) — a mudança já vale a partir do próximo processamento de "
-        "qualquer pessoa. Pra achar uma linha específica numa tabela grande, use a lupa 🔍 "
-        "no canto da tabela."
+        "qualquer pessoa. Use a busca no topo de cada tabela pra achar a rubrica/conta antes "
+        "de editar."
     )
 
     if not modelo_ok:
@@ -312,24 +347,43 @@ def pagina_padrao_bhub(modelo, modelo_ok, caminho_parametrizacao, caminho_plano_
             incluir_esocial = tipo == "folha"
             rubricas_do_tipo = modelo.rubricas_por_tipo(tipo)
             df_rubricas = rubricas_para_dataframe(rubricas_do_tipo, incluir_esocial)
-            st.caption(
-                f"{len(df_rubricas)} rubrica(s). Deixe Débito e Crédito em branco numa natureza "
-                "pra essa natureza não gerar lançamento pra essa rubrica. Use os controles da "
-                "tabela pra adicionar/remover linhas."
+
+            busca = st.text_input(
+                "🔍 Buscar rubrica (número ou nome)",
+                key=f"busca_padrao_bhub_{tipo}",
+                placeholder="ex.: 336 ou SALARIO",
             )
+            df_mostrado = _filtrar_por_texto(df_rubricas, busca, ["numero", "nome"])
+            if busca:
+                st.caption(
+                    f"{len(df_mostrado)} de {len(df_rubricas)} rubrica(s) encontrada(s). Editar e "
+                    "trocar o texto da busca ANTES de clicar em salvar descarta a edição ainda não "
+                    "salva desta aba (nada se perde no arquivo — só o que ainda não foi salvo na tela)."
+                )
+            else:
+                st.caption(
+                    f"{len(df_rubricas)} rubrica(s). Deixe Débito e Crédito em branco numa natureza "
+                    "pra essa natureza não gerar lançamento pra essa rubrica. Use os controles da "
+                    "tabela pra adicionar/remover linhas."
+                )
             df_editado = st.data_editor(
-                df_rubricas,
+                df_mostrado,
                 width="stretch",
                 num_rows="dynamic",
                 height=420,
-                key=f"editor_padrao_bhub_rubricas_{tipo}",
+                key=f"editor_padrao_bhub_rubricas_{tipo}_{busca}",
                 column_config={
                     "natureza": st.column_config.SelectboxColumn(options=["P", "D", "I", "ID", "-"]),
                 },
             )
             if st.button(f"Salvar \"{bhub_model.SHEETS_RUBRICAS[tipo]}\"", key=f"salvar_padrao_bhub_{tipo}"):
                 try:
-                    rubricas_novas = dataframe_para_rubricas(df_editado, tipo, incluir_esocial)
+                    subset_editado = dataframe_para_rubricas(df_editado, tipo, incluir_esocial)
+                    rubricas_completas_por_numero = {r.numero: r for r in rubricas_do_tipo}
+                    chaves_mostradas = set(df_mostrado["numero"])
+                    rubricas_novas = _mesclar_edicao_parcial(
+                        rubricas_completas_por_numero, chaves_mostradas, subset_editado
+                    )
                     salvar_rubricas_de_um_tipo(caminho_parametrizacao, tipo, rubricas_novas)
                 except ValueError as exc:
                     st.error(str(exc))
@@ -340,22 +394,41 @@ def pagina_padrao_bhub(modelo, modelo_ok, caminho_parametrizacao, caminho_plano_
 
     with abas[-1]:
         df_contas = plano_contas_para_dataframe(modelo.plano_contas)
-        st.caption(
-            f"{len(df_contas)} conta(s) analítica(s) (só essas entram no matching — contas "
-            "sintéticas do plano original não aparecem aqui nem são afetadas ao salvar). "
-            "\"natureza (calculada)\" é só informativo: vem do texto em \"grupo_da_conta\" "
-            "— contas do MESMO grupo têm que usar o MESMO texto pra caírem na mesma natureza."
+
+        busca_contas = st.text_input(
+            "🔍 Buscar conta (código ou nome)",
+            key="busca_padrao_bhub_plano_contas",
+            placeholder="ex.: 2001 ou CAIXA",
         )
+        df_contas_mostrado = _filtrar_por_texto(df_contas, busca_contas, ["codigo", "nome"])
+        if busca_contas:
+            st.caption(
+                f"{len(df_contas_mostrado)} de {len(df_contas)} conta(s) encontrada(s). Editar e "
+                "trocar o texto da busca ANTES de clicar em salvar descarta a edição ainda não "
+                "salva desta aba (nada se perde no arquivo — só o que ainda não foi salvo na tela)."
+            )
+        else:
+            st.caption(
+                f"{len(df_contas)} conta(s) analítica(s) (só essas entram no matching — contas "
+                "sintéticas do plano original não aparecem aqui nem são afetadas ao salvar). "
+                "\"natureza (calculada)\" é só informativo: vem do texto em \"grupo_da_conta\" "
+                "— contas do MESMO grupo têm que usar o MESMO texto pra caírem na mesma natureza."
+            )
         df_contas_editado = st.data_editor(
-            df_contas,
+            df_contas_mostrado,
             width="stretch",
             num_rows="dynamic",
             height=420,
-            key="editor_padrao_bhub_plano_contas",
+            key=f"editor_padrao_bhub_plano_contas_{busca_contas}",
             column_config={"natureza (calculada)": st.column_config.TextColumn(disabled=True)},
         )
         if st.button("Salvar plano de contas", key="salvar_padrao_bhub_plano_contas"):
-            plano_contas_novo = dataframe_para_plano_contas(df_contas_editado)
+            subset_editado_dict = dataframe_para_plano_contas(df_contas_editado)
+            chaves_mostradas = set(df_contas_mostrado["codigo"])
+            plano_contas_novo_lista = _mesclar_edicao_parcial(
+                dict(modelo.plano_contas), chaves_mostradas, list(subset_editado_dict.values())
+            )
+            plano_contas_novo = {c.codigo: c for c in plano_contas_novo_lista}
             salvar_plano_contas(caminho_plano_contas, plano_contas_novo)
             limpar_cache_modelo()
             st.success("Plano de contas salvo — recarregando o modelo atualizado...")
