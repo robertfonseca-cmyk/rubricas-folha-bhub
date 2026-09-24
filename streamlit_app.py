@@ -23,6 +23,7 @@ import pandas as pd
 import streamlit as st
 
 import bhub_model
+import bhub_model_editor
 import build_review
 import dominio_export
 import empresa_loader
@@ -92,6 +93,25 @@ except Exception as exc:  # arquivos de referência ausentes/corrompidos
     modelo = None
     modelo_ok = False
     st.sidebar.error(f"Não consegui carregar o modelo BHub: {exc}")
+
+secao_sidebar_bhub("🧭", "Navegação")
+modo_app = st.sidebar.radio(
+    "O que você quer fazer?",
+    options=["contabilizar", "padrao_bhub"],
+    format_func=lambda v: (
+        "Contabilizar rubricas de uma empresa" if v == "contabilizar"
+        else "Consultar/alterar padrão BHub"
+    ),
+    key="modo_app",
+)
+
+if modo_app == "padrao_bhub":
+    cabecalho_bhub("Contabilização de Rubricas de Folha")
+    bhub_model_editor.pagina_padrao_bhub(
+        modelo, modelo_ok, CAMINHO_PARAMETRIZACAO, CAMINHO_PLANO_CONTAS_BHUB,
+        carregar_modelo_bhub.clear,
+    )
+    st.stop()
 
 # Empresa e CNPJ são fixos pro processo inteiro — não mudam entre departamentos,
 # por isso vêm primeiro, antes de qualquer informação variável.

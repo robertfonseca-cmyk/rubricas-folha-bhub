@@ -178,8 +178,13 @@ def _localizar_linha_cabecalho(ws, max_linhas=15):
     raise ValueError(f"Cabeçalho 'Nome da Rubrica' não encontrado na aba '{ws.title}'")
 
 
-def _carregar_aba_rubricas(ws, tipo):
-    linha_cab = _localizar_linha_cabecalho(ws)
+def mapear_colunas_rubricas(ws, linha_cab):
+    """Acha as colunas Nº/Nome da Rubrica/Natureza e os pares Débito/Crédito
+    (um por natureza da empresa, na ORDEM em que aparecem na planilha — a
+    correspondência com NATUREZAS_EMPRESA é posicional, não por rótulo) na
+    linha de cabeçalho `linha_cab`. Extraído à parte (não só usado aqui) pra
+    bhub_model_editor.py reaproveitar exatamente a mesma lógica ao editar a
+    planilha célula a célula, em vez de duplicar/arriscar divergir dela."""
     max_col = ws.max_column
 
     col_numero = col_nome = col_natureza = None
@@ -204,6 +209,13 @@ def _carregar_aba_rubricas(ws, tipo):
 
     if col_numero is None or col_nome is None:
         raise ValueError(f"Colunas Nº/Nome da Rubrica não encontradas na aba '{ws.title}'")
+
+    return col_numero, col_nome, col_natureza, pares_natureza
+
+
+def _carregar_aba_rubricas(ws, tipo):
+    linha_cab = _localizar_linha_cabecalho(ws)
+    col_numero, col_nome, col_natureza, pares_natureza = mapear_colunas_rubricas(ws, linha_cab)
 
     rubricas = []
     for linha in range(linha_cab + 1, ws.max_row + 1):
