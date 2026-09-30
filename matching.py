@@ -88,19 +88,42 @@ def construir_indice_contas_empresa(contas_empresa):
     return indice
 
 
-def match_conta(codigo_conta_bhub, plano_contas_bhub, indice_contas_empresa):
+def construir_indice_contas_por_grupo(contas_empresa, grupo_texto):
+    """Como construir_indice_contas_empresa(), mas devolve um bucket ÚNICO
+    (não um dict por natureza) restrito às contas analíticas da empresa cujo
+    texto bata (contém, sem diferenciar maiúscula/minúscula) com QUALQUER
+    grupo/subgrupo ancestral na hierarquia do plano — não só o de nível 1
+    (que é o que vira `natureza`). Usado quando um departamento tem um
+    "grupo específico do plano de contas" configurado (2026-09-30, a pedido
+    do Robert) — SUBSTITUI o filtro por natureza em match_conta."""
+    texto_busca = (grupo_texto or "").strip().upper()
+    contas_do_grupo = [
+        c for c in contas_empresa
+        if c.tipo_cta == "A" and any(texto_busca in (g or "").upper() for g in c.grupos_ancestrais)
+    ]
+    normalizadas = [(_normalizar_texto(c.nome), c) for c in contas_do_grupo]
+    return {
+        "normalizadas": normalizadas,
+        "tokens": _construir_indice_tokens(normalizadas),
+    }
+
+
+def match_conta(codigo_conta_bhub, plano_contas_bhub, indice_contas_empresa, bucket_grupo_especifico=None):
     """Acha, no plano de contas da empresa, a conta equivalente a uma conta BHub.
 
     `indice_contas_empresa` vem de construir_indice_contas_empresa() — filtra
     candidatas pela MESMA natureza (ativo/passivo/receita/despesa) e exclui
     qualquer candidata cuja sigla de tributo seja diferente da sigla da conta BHub
-    (mesmo com texto parecido). Devolve (ContaEmpresa | None, confiança 0-1)."""
+    (mesmo com texto parecido). Se `bucket_grupo_especifico` for informado (vem de
+    construir_indice_contas_por_grupo(), quando o departamento tem um grupo
+    específico configurado), ele é usado NO LUGAR do bucket por natureza.
+    Devolve (ContaEmpresa | None, confiança 0-1)."""
     conta_bhub = plano_contas_bhub.get(codigo_conta_bhub)
     if conta_bhub is None:
         return None, 0.0
 
-    bucket = indice_contas_empresa.get(conta_bhub.natureza)
-    if not bucket:
+    bucket = bucket_grupo_especifico if bucket_grupo_especifico is not None else indice_contas_empresa.get(conta_bhub.natureza)
+    if not bucket or not bucket.get("normalizadas"):
         return None, 0.0
 
     siglas_bhub = _siglas_tributo(conta_bhub.nome)

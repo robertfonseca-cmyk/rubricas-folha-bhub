@@ -18,3 +18,10 @@ class TratativaDepartamento:
     tipo_integracao: int
     ultimo_historico: int
     ultimo_lancamento: int
+    # Opcional (2026-09-30, a pedido do Robert): pra empresas cujo plano de
+    # contas precisa restringir o match a um grupo/subgrupo específico do
+    # plano da EMPRESA (não só ativo/passivo/receita/despesa) — quando
+    # preenchido, SUBSTITUI o filtro por natureza na hora de achar a conta
+    # equivalente da empresa (ver matching.construir_indice_contas_por_grupo).
+    # Vazio (padrão) = comportamento de sempre, filtra só por natureza.
+    grupo_conta_especifico: str = ""

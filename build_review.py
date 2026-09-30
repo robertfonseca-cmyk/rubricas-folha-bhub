@@ -33,9 +33,14 @@ def _formatar_conta(conta_empresa):
     return f"{conta_empresa.codigo} - {conta_empresa.nome}"
 
 
-def montar_tabela_revisao(modelo, contas_empresa, rubricas_empresa, natureza_empresa, tipo_integracao, progress_callback=None):
+def montar_tabela_revisao(modelo, contas_empresa, rubricas_empresa, natureza_empresa, tipo_integracao, progress_callback=None, grupo_conta_especifico=""):
     """progress_callback(i, total), se informado, é chamado periodicamente
-    (a cada ~0,5% do total) para alimentar uma barra de progresso na UI."""
+    (a cada ~0,5% do total) para alimentar uma barra de progresso na UI.
+
+    `grupo_conta_especifico` (opcional, 2026-09-30): quando informado, troca
+    o filtro padrão de candidatas da empresa (por natureza — ativo/passivo/
+    receita/despesa) por um filtro pelo texto desse grupo/subgrupo específico
+    do plano de contas da EMPRESA — ver matching.construir_indice_contas_por_grupo."""
     tipo_rubrica_bhub = bhub_model.TIPO_INTEGRACAO.get(tipo_integracao, "folha")
     rubricas_bhub_do_tipo = modelo.rubricas_por_tipo(tipo_rubrica_bhub)
 
@@ -45,12 +50,15 @@ def montar_tabela_revisao(modelo, contas_empresa, rubricas_empresa, natureza_emp
     # fica impraticavelmente lento (uma rodada real chegou a passar de 2 minutos).
     indice_rubricas_bhub = matching.construir_indice_rubricas_bhub(rubricas_bhub_do_tipo)
     indice_contas_empresa = matching.construir_indice_contas_empresa(contas_empresa)
+    bucket_grupo_especifico = None
+    if grupo_conta_especifico:
+        bucket_grupo_especifico = matching.construir_indice_contas_por_grupo(contas_empresa, grupo_conta_especifico)
     cache_contas = {}
 
     def _match_conta_cacheado(codigo_conta_bhub):
         if codigo_conta_bhub not in cache_contas:
             cache_contas[codigo_conta_bhub] = matching.match_conta(
-                codigo_conta_bhub, modelo.plano_contas, indice_contas_empresa
+                codigo_conta_bhub, modelo.plano_contas, indice_contas_empresa, bucket_grupo_especifico
             )
         return cache_contas[codigo_conta_bhub]
 
@@ -145,6 +153,7 @@ def montar_tabela_revisao_multi(modelo, contas_empresa, rubricas_empresa, tratat
             modelo_ajustado, contas_empresa, rubricas_desta_tratativa,
             tratativa.natureza_empresa, tratativa.tipo_integracao,
             progress_callback=callback_parcial,
+            grupo_conta_especifico=tratativa.grupo_conta_especifico,
         )
         df_tratativa["tratativa_id"] = tratativa.id
         df_tratativa["departamento"] = tratativa.departamento

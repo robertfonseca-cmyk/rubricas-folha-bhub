@@ -7,7 +7,7 @@ nome/codigo_esocial para a relação de rubricas) foram confirmados no piloto
 original com a empresa Nova Rede.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 
@@ -21,6 +21,12 @@ class ContaEmpresa:
     clas_cta: str
     tipo_cta: str  # "A" analítica / "S" sintética
     natureza: str = "desconhecida"
+    # Nome de CADA grupo/subgrupo ancestral na hierarquia do plano da empresa
+    # (não só o de nível 1, que já vira `natureza`) — usado pelo filtro
+    # opcional "grupo específico" por departamento (2026-09-30, a pedido do
+    # Robert: empresas cujo plano de contas precisa ser restrito a um grupo
+    # mais específico que só ativo/passivo/receita/despesa).
+    grupos_ancestrais: list = field(default_factory=list)
 
 
 @dataclass
@@ -87,6 +93,7 @@ def _classificar_natureza_por_grupo_topo(contas):
         grupo_topo = min(ancestrais, key=lambda s: len(s.clas_cta), default=None)
         nome_referencia = grupo_topo.nome if grupo_topo else conta.nome
         conta.natureza = derivar_natureza_por_nome(nome_referencia)
+        conta.grupos_ancestrais = [s.nome for s in ancestrais]
 
 
 def carregar_rubricas_empresa(caminho):

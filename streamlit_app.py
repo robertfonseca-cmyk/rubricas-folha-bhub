@@ -170,6 +170,18 @@ with st.form("form_novo_departamento", clear_on_submit=True):
         ultimo_historico_novo = st.number_input("Último histórico já cadastrado (deste departamento)", min_value=0, step=1)
         ultimo_lancamento_novo = st.number_input("Último lançamento já cadastrado (deste departamento)", min_value=0, step=1)
 
+    grupo_conta_especifico_novo = st.text_input(
+        "Grupo específico do plano de contas da empresa (opcional)",
+        help=(
+            "Deixe em branco pro comportamento padrão (busca a conta equivalente pela "
+            "natureza contábil — ativo/passivo/receita/despesa). Preencha só se este "
+            "departamento precisar restringir a busca a um grupo/subgrupo específico do "
+            "plano de contas DA EMPRESA (ex.: \"Despesas com Frota\") — nesse caso, a busca "
+            "passa a considerar só contas dentro desse grupo, em vez de qualquer conta da "
+            "mesma natureza. Basta o texto bater com uma PARTE do nome do grupo."
+        ),
+    )
+
     if tipo_integracao_novo == 3:
         st.warning(
             "Tipo 3 (Férias) só é habilitado em casos específicos no Domínio — na "
@@ -189,6 +201,7 @@ with st.form("form_novo_departamento", clear_on_submit=True):
                 tipo_integracao=tipo_integracao_novo,
                 ultimo_historico=int(ultimo_historico_novo),
                 ultimo_lancamento=int(ultimo_lancamento_novo),
+                grupo_conta_especifico=grupo_conta_especifico_novo.strip(),
             ))
             st.session_state.proximo_id_departamento += 1
 
@@ -202,6 +215,7 @@ if st.session_state.departamentos:
             "tipo_integracao": t.tipo_integracao,
             "ultimo_historico": t.ultimo_historico,
             "ultimo_lancamento": t.ultimo_lancamento,
+            "grupo_conta_especifico": t.grupo_conta_especifico,
             "remover": False,
         }
         for t in st.session_state.departamentos
@@ -225,6 +239,10 @@ if st.session_state.departamentos:
             ),
             "ultimo_historico": st.column_config.NumberColumn("Último histórico", min_value=0, step=1),
             "ultimo_lancamento": st.column_config.NumberColumn("Último lançamento", min_value=0, step=1),
+            "grupo_conta_especifico": st.column_config.TextColumn(
+                "Grupo específico (opcional)",
+                help="Vazio = busca por natureza (padrão). Preenchido = restringe a esse grupo/subgrupo do plano da empresa.",
+            ),
             "remover": st.column_config.CheckboxColumn("Remover"),
         },
         key="editor_departamentos",
@@ -241,6 +259,7 @@ if st.session_state.departamentos:
             tipo_integracao=int(linha["tipo_integracao"]),
             ultimo_historico=int(linha["ultimo_historico"]),
             ultimo_lancamento=int(linha["ultimo_lancamento"]),
+            grupo_conta_especifico=str(linha.get("grupo_conta_especifico") or "").strip(),
         )
         for _, linha in df_departamentos_editado.iterrows()
         if not linha["remover"]
