@@ -304,17 +304,22 @@ else:
             # como lista de rubricas (só código + nome — sem codi_emp/código
             # eSocial, que o relatório não traz; o matching cai pra
             # nome_exato/nome_aproximado nesse caso, que já é suportado).
-            itens_por_tipo = relatorio_341.extrair_itens_por_tipo_integracao(arquivo_relatorio_341)
+            # Guarda a estrutura POR DEPARTAMENTO (não achatada) — um mesmo
+            # relatório pode ter vários departamentos dentro do mesmo Tipo de
+            # folha, com a MESMA rubrica repetida em departamentos diferentes
+            # (2026-10-24, a pedido do Robert); a seção 3 cruza cada
+            # departamento configurado na tela com o departamento certo do
+            # relatório na hora de montar as rubricas de cada tratativa.
+            itens_por_tipo_e_departamento = relatorio_341.extrair_itens_por_tipo_e_departamento(arquivo_relatorio_341)
             itens_unicos = {}
-            for itens in itens_por_tipo.values():
-                itens_unicos.update(itens)
+            for por_departamento in itens_por_tipo_e_departamento.values():
+                for itens in por_departamento.values():
+                    itens_unicos.update(itens)
             st.session_state.rubricas_todas = [
                 empresa_loader.RubricaEmpresa(codigo=codigo, nome=nome, codigo_esocial="", codi_emp="")
                 for codigo, nome in itens_unicos.items()
             ]
-            st.session_state.rubricas_por_tipo_relatorio = {
-                tipo: set(itens) for tipo, itens in itens_por_tipo.items()
-            }
+            st.session_state.rubricas_por_tipo_relatorio = itens_por_tipo_e_departamento
         else:
             st.session_state.rubricas_todas = empresa_loader.carregar_rubricas_empresa(arquivo_rubricas)
             st.session_state.rubricas_por_tipo_relatorio = None
@@ -325,15 +330,19 @@ else:
 
     if usando_so_relatorio:
         resumo_por_tipo = ", ".join(
-            f"{bhub_model.TIPO_INTEGRACAO_LABELS.get(tipo, tipo)}: {len(codigos)}"
-            for tipo, codigos in sorted(st.session_state.rubricas_por_tipo_relatorio.items())
+            f"{bhub_model.TIPO_INTEGRACAO_LABELS.get(tipo, tipo)}: "
+            f"{sum(len(c) for c in por_departamento.values())} rubrica(s) em "
+            f"{len(por_departamento)} departamento(s) do relatório"
+            for tipo, por_departamento in sorted(st.session_state.rubricas_por_tipo_relatorio.items())
         )
         st.info(
             f"Sem a relação de rubricas completa da empresa — usando o "
             f"relatório como lista: {len(rubricas_todas)} rubrica(s), já "
-            f"separadas por Tipo da Integração ({resumo_por_tipo}). Cada "
-            "departamento (seção 1) vai processar só as rubricas do seu "
-            "próprio tipo."
+            f"separadas por Tipo da Integração e por Departamento ({resumo_por_tipo}). "
+            "Cada departamento (seção 1) vai processar só as rubricas do seu "
+            "próprio Tipo E do SEU código de departamento no relatório — sem "
+            "bater nenhum departamento, usa todas as rubricas do tipo (de "
+            "qualquer departamento do relatório), com aviso na hora de processar."
         )
     else:
         st.caption(f"{len(st.session_state.rubricas_selecionadas)} de {len(rubricas_todas)} rubricas selecionadas.")
@@ -347,27 +356,45 @@ else:
             "Provisão)."
         )
         if arquivo_relatorio_341 is not None and st.button("Aplicar seleção do relatório"):
-            codigos_por_tipo = relatorio_341.extrair_codigos_por_tipo_integracao(arquivo_relatorio_341)
+            itens_por_tipo_e_departamento = relatorio_341.extrair_itens_por_tipo_e_departamento(arquivo_relatorio_341)
             codigos_disponiveis = {r.codigo for r in rubricas_todas}
 
-            codigos_por_tipo_validos = {
-                tipo: codigos & codigos_disponiveis for tipo, codigos in codigos_por_tipo.items()
+            # Guarda a estrutura POR DEPARTAMENTO (a seção 3 cruza cada
+            # tratativa com o departamento certo do relatório), já filtrada
+            # pelos códigos que existem na relação de rubricas enviada.
+            itens_validos = {
+                tipo: {
+                    departamento: {cod: nome for cod, nome in itens.items() if cod in codigos_disponiveis}
+                    for departamento, itens in por_departamento.items()
+                }
+                for tipo, por_departamento in itens_por_tipo_e_departamento.items()
             }
-            todos_codigos_relatorio = set().union(*codigos_por_tipo.values()) if codigos_por_tipo else set()
+
+            todos_codigos_relatorio = {
+                cod
+                for por_departamento in itens_por_tipo_e_departamento.values()
+                for itens in por_departamento.values()
+                for cod in itens
+            }
             codigos_nao_encontrados = todos_codigos_relatorio - codigos_disponiveis
 
-            st.session_state.rubricas_por_tipo_relatorio = codigos_por_tipo_validos
-            st.session_state.rubricas_selecionadas = (
-                set().union(*codigos_por_tipo_validos.values()) if codigos_por_tipo_validos else set()
-            )
+            st.session_state.rubricas_por_tipo_relatorio = itens_validos
+            st.session_state.rubricas_selecionadas = {
+                cod
+                for por_departamento in itens_validos.values()
+                for itens in por_departamento.values()
+                for cod in itens
+            }
 
             resumo_por_tipo = ", ".join(
-                f"{bhub_model.TIPO_INTEGRACAO_LABELS.get(tipo, tipo)}: {len(codigos)}"
-                for tipo, codigos in sorted(codigos_por_tipo_validos.items())
+                f"{bhub_model.TIPO_INTEGRACAO_LABELS.get(tipo, tipo)}: "
+                f"{sum(len(c) for c in por_departamento.values())} rubrica(s) em "
+                f"{len(por_departamento)} departamento(s)"
+                for tipo, por_departamento in sorted(itens_validos.items())
             )
             st.success(
                 f"{len(st.session_state.rubricas_selecionadas)} rubrica(s) selecionadas a partir "
-                f"do relatório, por Tipo da Integração — {resumo_por_tipo}."
+                f"do relatório, por Tipo da Integração e Departamento — {resumo_por_tipo}."
             )
             if codigos_nao_encontrados:
                 amostra = ", ".join(sorted(codigos_nao_encontrados, key=lambda c: (len(c), c))[:20])
@@ -472,17 +499,33 @@ if st.button("Processar rubricas da empresa", disabled=not pode_processar):
     rubricas_por_tipo_relatorio = st.session_state.get("rubricas_por_tipo_relatorio")
     if rubricas_por_tipo_relatorio:
         # Seleção por relatório 341 ativa: cada departamento só recebe as
-        # rubricas do SEU Tipo da Integração — cruzadas com o que ainda está
-        # marcado na tabela (desmarcar uma rubrica manualmente continua
-        # valendo mesmo dentro do modo por tipo).
-        rubricas_empresa = {
-            tratativa.id: [
-                r for r in st.session_state.rubricas_todas
-                if r.codigo in (rubricas_por_tipo_relatorio.get(tratativa.tipo_integracao, set())
-                                & st.session_state.rubricas_selecionadas)
+        # rubricas do SEU Tipo da Integração E do SEU código de departamento
+        # no relatório (2026-10-24) — cruzadas com o que ainda está marcado
+        # na tabela (desmarcar uma rubrica manualmente continua valendo). Sem
+        # bater o departamento, cai pra todas as rubricas do tipo (qualquer
+        # departamento do relatório) e avisa — não trava o processamento.
+        rubricas_empresa = {}
+        departamentos_sem_match_exato = []
+        for tratativa in st.session_state.departamentos:
+            itens, bateu_exato = relatorio_341.selecionar_itens_para_departamento(
+                rubricas_por_tipo_relatorio, tratativa.tipo_integracao, tratativa.departamento
+            )
+            if itens and not bateu_exato:
+                departamentos_sem_match_exato.append(tratativa.departamento)
+            codigos_da_tratativa = set(itens) & st.session_state.rubricas_selecionadas
+            rubricas_empresa[tratativa.id] = [
+                r for r in st.session_state.rubricas_todas if r.codigo in codigos_da_tratativa
             ]
-            for tratativa in st.session_state.departamentos
-        }
+        if departamentos_sem_match_exato:
+            st.warning(
+                "Departamento(s) "
+                + ", ".join(f'"{d}"' for d in departamentos_sem_match_exato)
+                + " não bateram com nenhum código de departamento do relatório pro "
+                "Tipo da Integração configurado — usando todas as rubricas desse "
+                "tipo, de qualquer departamento do relatório, pra esse(s) "
+                "departamento(s). Confira se o código do departamento na seção 1 "
+                "está igual ao do relatório (ex.: \"1003\")."
+            )
     else:
         rubricas_empresa = [
             r for r in st.session_state.rubricas_todas
