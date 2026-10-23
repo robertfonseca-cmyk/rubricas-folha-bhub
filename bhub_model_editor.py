@@ -11,6 +11,11 @@ consultar quando alterar". Decisões confirmadas com ele:
   backup) — o próximo processamento de qualquer pessoa no app já usa a
   versão nova.
 
+Adicionado em 2026-10-23: as colunas de Débito/Crédito das rubricas viraram
+uma CONSULTA do plano de contas BHub (SelectboxColumn buscável por "código -
+nome"), em vez de exigir digitar o código de cor — ver `opcoes_contas_bhub()`/
+`_formatar_conta_bhub()`/`_codigo_da_conta_bhub()`.
+
 IMPORTANTE — por que a escrita é célula a célula, e não recriar o arquivo do
 zero: inspecionando os .xlsx reais, cada um tem MUITO mais dado do que este
 app lê. A parametrização de rubricas tem 8 abas (só 5 são lidas aqui: Folha/
@@ -51,7 +56,39 @@ def _texto(valor):
 # Rubricas — DataFrame <-> RubricaBhub, pra exibir/editar no data_editor
 # ---------------------------------------------------------------------------
 
-def rubricas_para_dataframe(rubricas, incluir_esocial):
+def _formatar_conta_bhub(codigo, plano_contas):
+    """"<código> - <nome>" pra exibir/escolher na consulta do plano de contas
+    (2026-10-23, a pedido do Robert); sem código (natureza sem conta) devolve
+    "". Código que não existe no plano de contas (dado órfão entre os dois
+    arquivos) devolve o código puro — não trava a tela por causa disso."""
+    if not codigo:
+        return ""
+    conta = plano_contas.get(codigo)
+    return f"{codigo} - {conta.nome}" if conta else codigo
+
+
+def _codigo_da_conta_bhub(valor):
+    """Extrai o código de volta de um valor "<código> - <nome>" escolhido na
+    consulta (ou do código puro, se o usuário digitar só o código)."""
+    texto = _texto(valor)
+    if not texto:
+        return ""
+    return texto.split(" - ", 1)[0].strip()
+
+
+def opcoes_contas_bhub(plano_contas, codigos_extras=()):
+    """Lista de opções "<código> - <nome>" pra SelectboxColumn, com "" (sem
+    conta) primeiro. `codigos_extras`: códigos usados em alguma rubrica que
+    não constam no plano de contas (dado órfão) — entram como opção crua, pra
+    não quebrar a tabela com um valor fora da lista."""
+    opcoes = [""] + [
+        f"{c.codigo} - {c.nome}" for c in sorted(plano_contas.values(), key=lambda c: c.codigo)
+    ]
+    extras_ausentes = sorted({cod for cod in codigos_extras if cod and cod not in plano_contas})
+    return opcoes + extras_ausentes
+
+
+def rubricas_para_dataframe(rubricas, incluir_esocial, plano_contas):
     linhas = []
     for r in rubricas:
         linha = {"numero": r.numero, "nome": r.nome, "natureza": r.natureza}
@@ -59,8 +96,8 @@ def rubricas_para_dataframe(rubricas, incluir_esocial):
             linha["codigo_esocial"] = r.codigo_esocial
         for natureza_empresa in bhub_model.NATUREZAS_EMPRESA:
             deb, cred = r.contas.get(natureza_empresa, ("", ""))
-            linha[f"{natureza_empresa}_debito"] = deb
-            linha[f"{natureza_empresa}_credito"] = cred
+            linha[f"{natureza_empresa}_debito"] = _formatar_conta_bhub(deb, plano_contas)
+            linha[f"{natureza_empresa}_credito"] = _formatar_conta_bhub(cred, plano_contas)
         linhas.append(linha)
     colunas = ["numero", "nome", "natureza"] + (["codigo_esocial"] if incluir_esocial else []) + _COLUNAS_CONTAS_POR_NATUREZA
     return pd.DataFrame(linhas, columns=colunas)
@@ -74,8 +111,8 @@ def dataframe_para_rubricas(df, tipo, incluir_esocial):
             continue
         contas = {}
         for natureza_empresa in bhub_model.NATUREZAS_EMPRESA:
-            deb = _texto(linha.get(f"{natureza_empresa}_debito"))
-            cred = _texto(linha.get(f"{natureza_empresa}_credito"))
+            deb = _codigo_da_conta_bhub(linha.get(f"{natureza_empresa}_debito"))
+            cred = _codigo_da_conta_bhub(linha.get(f"{natureza_empresa}_credito"))
             if deb and cred:
                 contas[natureza_empresa] = (deb, cred)
         rubricas.append(bhub_model.RubricaBhub(
@@ -346,7 +383,29 @@ def pagina_padrao_bhub(modelo, modelo_ok, caminho_parametrizacao, caminho_plano_
         with aba:
             incluir_esocial = tipo == "folha"
             rubricas_do_tipo = modelo.rubricas_por_tipo(tipo)
-            df_rubricas = rubricas_para_dataframe(rubricas_do_tipo, incluir_esocial)
+            df_rubricas = rubricas_para_dataframe(rubricas_do_tipo, incluir_esocial, modelo.plano_contas)
+
+            # Consulta do plano de contas BHub direto nas colunas de Débito/
+            # Crédito (2026-10-23, a pedido do Robert): em vez de digitar o
+            # código de cor, escolhe "código - nome" numa lista buscável —
+            # inclui qualquer código já usado por uma rubrica desta aba que
+            # não exista no plano de contas, pra não travar a tabela.
+            codigos_em_uso = {
+                codigo
+                for r in rubricas_do_tipo
+                for par_deb_cred in r.contas.values()
+                for codigo in par_deb_cred
+            }
+            opcoes_contas = opcoes_contas_bhub(modelo.plano_contas, codigos_em_uso)
+            config_contas = {}
+            for natureza_empresa in bhub_model.NATUREZAS_EMPRESA:
+                rotulo_natureza = bhub_model.NATUREZAS_EMPRESA_LABELS[natureza_empresa]
+                config_contas[f"{natureza_empresa}_debito"] = st.column_config.SelectboxColumn(
+                    f"{rotulo_natureza} — Débito", options=opcoes_contas,
+                )
+                config_contas[f"{natureza_empresa}_credito"] = st.column_config.SelectboxColumn(
+                    f"{rotulo_natureza} — Crédito", options=opcoes_contas,
+                )
 
             busca = st.text_input(
                 "🔍 Buscar rubrica (número ou nome)",
@@ -362,9 +421,10 @@ def pagina_padrao_bhub(modelo, modelo_ok, caminho_parametrizacao, caminho_plano_
                 )
             else:
                 st.caption(
-                    f"{len(df_rubricas)} rubrica(s). Deixe Débito e Crédito em branco numa natureza "
-                    "pra essa natureza não gerar lançamento pra essa rubrica. Use os controles da "
-                    "tabela pra adicionar/remover linhas."
+                    f"{len(df_rubricas)} rubrica(s). Débito/Crédito agora são uma busca no plano de "
+                    "contas BHub — clique na célula e digite pra filtrar por código ou nome; deixe "
+                    "em branco numa natureza pra essa natureza não gerar lançamento pra essa rubrica. "
+                    "Use os controles da tabela pra adicionar/remover linhas."
                 )
             df_editado = st.data_editor(
                 df_mostrado,
@@ -374,6 +434,7 @@ def pagina_padrao_bhub(modelo, modelo_ok, caminho_parametrizacao, caminho_plano_
                 key=f"editor_padrao_bhub_rubricas_{tipo}_{busca}",
                 column_config={
                     "natureza": st.column_config.SelectboxColumn(options=["P", "D", "I", "ID", "-"]),
+                    **config_contas,
                 },
             )
             if st.button(f"Salvar \"{bhub_model.SHEETS_RUBRICAS[tipo]}\"", key=f"salvar_padrao_bhub_{tipo}"):
